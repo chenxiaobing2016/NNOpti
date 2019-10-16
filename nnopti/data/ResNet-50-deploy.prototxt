@@ -2302,10 +2302,10 @@ layer {
 layer {
         bottom: "pool5"
         top: "my-classifier"
-        name: "my-classifier"
+        name: "fc1000"
         type: "InnerProduct"
         inner_product_param {
-                num_output: 3
+                num_output: 1000
         }
 }
 layer {

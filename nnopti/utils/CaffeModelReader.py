@@ -8,7 +8,10 @@ def parse_caffemodel(caffemodel_file):
     f = open(caffemodel_file, 'rb')
     model.ParseFromString(f.read())
     f.close()
+    return model
 
+
+'''
     print(model.name)
     print(model.input)
 
@@ -17,6 +20,7 @@ def parse_caffemodel(caffemodel_file):
     layer_id = -1
     for layer in layers:
         layer_id = layer_id + 1
+
         print 'layer {'
         print '  name: "%s"' % layer.name
         print '  type: "%s"' % layer.type
@@ -88,3 +92,4 @@ def parse_caffemodel(caffemodel_file):
             print '  }'
 
         print '}'
+'''
