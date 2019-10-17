@@ -7,6 +7,7 @@ from network.Network import Network
 
 from tests.ProtoReader import test as  proto_reader_test
 from tests.CaffeModelReader import test as caffe_model_reader_test
+import numpy as np
 
 
 def test():
@@ -29,9 +30,16 @@ def main():
     network.construct_from_json(json_file)
     network.init_caffe_model(model)
 
+    in_data = network.input
+    in_data.set_content(np.zeros(in_data.get_shape()))
     for layer in network.layers:
+        print 'start execute layer %s' % layer.name
+        layer.execute()
         layer.print_info()
         print ""
+    idx = len(network.layers) - 1
+    print "output:"
+    print network.layers[idx].top[0].get_content()
 
 
 if __name__ == "__main__":

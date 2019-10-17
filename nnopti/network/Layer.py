@@ -1,7 +1,8 @@
-# -- coding:utf-8 --
+# encoding: utf-8
 
 from enum import Enum
 from network.Data import Data
+import numpy as np
 import math
 
 
@@ -52,6 +53,12 @@ class Layer(object):
         print " " * indent + "layer name: %s" % self.name
         print " " * indent + "layer type: %s" % LayerType.to_string(self.layer_type)
 
+    def init_data_by_caffe_model(self, caffe_layer):
+        pass
+
+    def execute(self):
+        pass
+
     @staticmethod
     def create_from_json(json, data_set):
         assert "type" in json
@@ -76,9 +83,6 @@ class Layer(object):
         else:
             raise Exception("Unknown layer type")
         return layer
-
-    def init_data_by_caffe_model(self, caffe_layer):
-        pass
 
 
 class ConvLayer(Layer):
@@ -113,6 +117,35 @@ class ConvLayer(Layer):
             print " " * indent + "bias data:"
             self.bias[0].print_info(2 + indent)
 
+    def execute(self):
+        kx = self.kx
+        ky = self.ky
+        sx = self.sx
+        sy = self.sy
+        pad = self.pad
+        n, co, ho, wo = self.top[0].get_shape()
+        # add pad
+        n, ci, hi, wi = self.bottom[0].get_shape()
+
+        in_data = self.bottom[0].get_content()
+        out_data = np.empty(self.top[0].get_shape())
+        weight_data = self.weight[0].get_content()
+        pad_data = np.zeros([n, ci, hi + self.pad * 2, wi + self.pad * 2])
+        pad_data[..., pad:hi+pad, pad:wi+pad] = in_data
+
+        for idx_n in range(n):
+            for idx_co in range(co):
+                for idx_ho in range(ho):
+                    for idx_wo in range(wo):
+                        out_data[idx_n, idx_co, idx_ho, idx_wo] \
+                            = np.sum(pad_data[idx_n, :, idx_ho*sy:idx_ho*sy+ky, idx_wo*sx:idx_wo*sx+kx]
+                                     * weight_data[idx_co, ...])
+        if hasattr(self, 'bias'):
+            bias_data = self.bias[0].get_content()
+            for idx_co in range(co):
+                out_data[:, idx_co, ...] += bias_data[0, idx_co, 0, 0]
+
+        self.top[0].set_content(out_data)
 
     @staticmethod
     def create_from_json(json, data_set):
@@ -188,6 +221,26 @@ class BatchNormLayer(Layer):
         print " " * indent + "variance data:"
         self.vari[0].print_info(2 + indent)
 
+    def init_data_by_caffe_model(self, caffe_layer):
+        self.mean[0].set_content(caffe_layer.blobs[0].data)
+        self.vari[0].set_content(caffe_layer.blobs[1].data)
+
+    def execute(self):
+        n, c, h, w = self.top[0].get_shape()
+        out_data = self.bottom[0].get_content().copy()
+
+        if hasattr(self, 'mean'):
+            mean_data = self.mean[0].get_content()
+            for idx_c in range(c):
+                out_data[:, idx_c, ...] -= mean_data[0, idx_c, 0, 0]
+
+        if hasattr(self, 'vari'):
+            vari_data = self.vari[0].get_content()
+            for idx_c in range(c):
+                out_data[:, idx_c, ...] /= vari_data[0, idx_c, 0, 0]
+
+        self.top[0].set_content(out_data)
+
     @staticmethod
     def create_from_json(json, data_set):
         layer = BatchNormLayer()
@@ -224,10 +277,6 @@ class BatchNormLayer(Layer):
         layer.top = [output_data]
         return layer
 
-    def init_data_by_caffe_model(self, caffe_layer):
-        self.mean[0].set_content(caffe_layer.blobs[0].data)
-        self.vari[0].set_content(caffe_layer.blobs[1].data)
-
 
 class ScaleLayer(Layer):
 
@@ -249,6 +298,26 @@ class ScaleLayer(Layer):
         self.alpha[0].print_info(2 + indent)
         print " " * indent + "beta data:"
         self.beta[0].print_info(2 + indent)
+
+    def init_data_by_caffe_model(self, caffe_layer):
+        self.alpha[0].set_content(caffe_layer.blobs[0].data)
+        self.beta[0].set_content(caffe_layer.blobs[1].data)
+
+    def execute(self):
+        n, c, h, w = self.top[0].get_shape()
+        out_data = self.bottom[0].get_content().copy()
+
+        if hasattr(self, 'alpha'):
+            alpha_data = self.alpha[0].get_content()
+            for idx_c in range(c):
+                out_data[:, idx_c, ...] *= alpha_data[0, idx_c, 0, 0]
+
+        if hasattr(self, 'beta'):
+            beta_data = self.beta[0].get_content()
+            for idx_c in range(c):
+                out_data[:, idx_c, ...] += beta_data[0, idx_c, 0, 0]
+
+        self.top[0].set_content(out_data)
 
     @staticmethod
     def create_from_json(json, data_set):
@@ -286,10 +355,6 @@ class ScaleLayer(Layer):
         layer.top = [output_data]
         return layer
 
-    def init_data_by_caffe_model(self, caffe_layer):
-        self.alpha[0].set_content(caffe_layer.blobs[0].data)
-        self.beta[0].set_content(caffe_layer.blobs[1].data)
-
 
 class EltwiseLayer(Layer):
 
@@ -306,6 +371,12 @@ class EltwiseLayer(Layer):
             self.bottom[0].print_info(2 + indent)
         print " " * indent + "top data:"
         self.top[0].print_info(2 + indent)
+
+    def execute(self):
+        lhs_data = self.bottom[0].get_content()
+        rhs_data = self.bottom[1].get_content()
+        out_data = lhs_data + rhs_data
+        self.top[0].set_content(out_data)
 
     @staticmethod
     def create_from_json(json, data_set):
@@ -379,6 +450,44 @@ class PoolLayer(Layer):
         print " " * indent + "top data:"
         self.top[0].print_info(2 + indent)
 
+    def execute(self):
+        kx = self.kx
+        ky = self.ky
+        sx = self.sx
+        sy = self.sy
+        n, c, ho, wo = self.top[0].get_shape()
+        n, c, hi, wi = self.bottom[0].get_shape()
+        out_data = np.empty(self.top[0].get_shape())
+        in_data = self.bottom[0].get_content()
+        for idx_h in range(ho):
+            for idx_w in range(wo):
+                if self.pool_type == PoolLayer.PoolType.AVG:
+                    nr = 0
+                    out_data[:, :, idx_h, idx_w] = 0
+                    t_h = idx_h * sy
+                    while t_h < (idx_h + 1) * sy and t_h < hi:
+                        t_w = idx_w * sx
+                        while t_w < (idx_w + 1) * sx and t_w < wi:
+                            out_data[:, :, idx_h, idx_w] += in_data[:, :, t_h, t_w]
+                            t_w += 1
+                            nr += 1
+                        t_h += 1
+                    out_data[..., idx_h, idx_w] /= nr
+                elif self.pool_type == PoolLayer.PoolType.MAX:
+                    out_data[:, :, idx_h, idx_w] = in_data[:, :, idx_h * sy, idx_w * sx]
+                    t_h = idx_h * sy
+                    while t_h < (idx_h + 1) * sy and t_h < hi:
+                        t_w = idx_w * sx
+                        while t_w < (idx_w + 1) * sx and t_w < wi:
+                            out_data[:, :, idx_h, idx_w] = np.maximum(out_data[:, :, idx_h, idx_w], in_data[:, :, t_h, t_w])
+                            t_w += 1
+                        t_h += 1
+                elif self.pool_type == PoolLayer.PoolType.UNSET:
+                    raise Exception('pool type is unset')
+                else:
+                    raise Exception('unknown type is unset')
+        self.top[0].set_content(out_data)
+
     @staticmethod
     def create_from_json(json, data_set):
         layer = PoolLayer()
@@ -441,6 +550,29 @@ class InnerProductLayer(Layer):
             print " " * indent + "bias data:"
             self.bias[0].print_info(2 + indent)
 
+    def init_data_by_caffe_model(self, caffe_layer):
+        self.weight[0].set_content(caffe_layer.blobs[0].data)
+        if hasattr(self, 'bias'):
+            self.bias[0].set_content(caffe_layer.blobs[1].data)
+
+    def execute(self):
+        n, co, ho, wo = self.top[0].get_shape()
+        n, ci, hi, wi = self.bottom[0].get_shape()
+
+        out_data = np.empty(self.top[0].get_shape())
+        in_data = self.bottom[0].get_content()
+        weight_data = self.weight[0].get_content()
+
+        for idx_n in range(n):
+            for idx_co in range(co):
+                out_data[idx_n, idx_co, 0, 0] = np.sum(weight_data[idx_co, ...] * in_data[idx_n, ...])
+
+        if hasattr(self, 'bias'):
+            bias_data = self.bias[0].get_content()
+            for idx_co in range(co):
+                out_data[:, idx_co, ...] += bias_data[0, idx_co, 0, 0]
+
+        self.top[0].set_content(out_data)
 
     @staticmethod
     def create_from_json(json, data_set):
@@ -481,11 +613,6 @@ class InnerProductLayer(Layer):
             data_set.append(bias_data)
         return layer
 
-    def init_data_by_caffe_model(self, caffe_layer):
-        self.weight[0].set_content(caffe_layer.blobs[0].data)
-        if hasattr(self, 'bias'):
-            self.bias[0].set_content(caffe_layer.blobs[1].data)
-
 
 class SoftmaxLayer(Layer):
 
@@ -501,6 +628,17 @@ class SoftmaxLayer(Layer):
         self.bottom[0].print_info(2 + indent)
         print " " * indent + "top data:"
         self.top[0].print_info(2 + indent)
+
+    def execute(self):
+        out_data = np.exp(self.bottom[0].get_content())
+        n, c, h, w = out_data.shape
+        for idx_n in range(n):
+            for idx_h in range(h):
+                for idx_w in range(w):
+                    c_sum = out_data[idx_n][:][idx_h][idx_w].sum()
+                    for idx_c in range(c):
+                        out_data[idx_n][idx_c][idx_h][idx_w] /= c_sum
+        self.top[0].set_content(out_data)
 
     @staticmethod
     def create_from_json(json, data_set):
@@ -544,6 +682,9 @@ class ReluLayer(Layer):
         print " " * indent + "top data:"
         self.top[0].print_info(2 + indent)
 
+    def execute(self):
+        self.top[0].set_content(np.maximum(0, self.bottom[0].get_content()))
+
     @staticmethod
     def create_from_json(json, data_set):
         layer = ReluLayer()
@@ -585,6 +726,9 @@ class DropoutLayer(Layer):
         self.bottom[0].print_info(2 + indent)
         print " " * indent + "top data:"
         self.top[0].print_info(2 + indent)
+
+    def execute(self):
+        self.top[0].set_content(self.bottom[0].get_content().copy())
 
     @staticmethod
     def create_from_json(json, data_set):

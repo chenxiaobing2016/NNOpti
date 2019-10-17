@@ -24,7 +24,7 @@ class Data:
 
     def set_content(self, content):
         self.content = np.array(content)
-        self.content.reshape(self.shape)
+        self.content.resize(self.shape)
 
     def get_content(self):
         return self.content
@@ -32,5 +32,3 @@ class Data:
     def print_info(self, indent=0):
         print " " * indent + "name: %s" % self.name
         print " " * indent + "shape: %s" % self.shape.__str__()
-        print " " * indent + "content:"
-        print self.content
